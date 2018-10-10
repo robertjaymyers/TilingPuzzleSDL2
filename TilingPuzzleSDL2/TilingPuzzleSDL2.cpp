@@ -42,6 +42,11 @@ struct sdlCleanupTexture
 	}
 };
 
+bool mouseClicked = false;
+
+std::unique_ptr<SDL_Texture, sdlCleanupTexture> puzzleCompleteTex;
+SDL_Rect puzzleCompleteRect;
+
 const int puzzlePieceSize = 100;
 int selectedI = -1;
 std::unique_ptr<SDL_Texture, sdlCleanupTexture> selectedOverlayTex;
@@ -152,6 +157,10 @@ void programStartup()
 	selectedOverlayTex.reset(SDL_CreateTextureFromSurface(renderer.get(), tempSurface));
 	SDL_FreeSurface(tempSurface);
 
+	tempSurface = IMG_Load("textures/puzzle-complete-txt.png");
+	puzzleCompleteTex.reset(SDL_CreateTextureFromSurface(renderer.get(), tempSurface));
+	SDL_FreeSurface(tempSurface);
+
 	// Set src coords.
 	{
 		int xOffset = 0;
@@ -211,6 +220,11 @@ void programStartup()
 		miniRefImgRect.h = puzzlePieceSize;
 		miniRefImgRect.x = 100;
 		miniRefImgRect.y = 450;
+
+		puzzleCompleteRect.w = 300;
+		puzzleCompleteRect.h = 100;
+		puzzleCompleteRect.x = 200;
+		puzzleCompleteRect.y = 450;
 	}
 
 	shufflePuzzles();
@@ -234,60 +248,90 @@ void eventsCheckPlay()
 		programState = ProgramState::SHUTDOWN;
 		break;
 	case SDL_MOUSEBUTTONDOWN:
-		if (sdlEvent.button.button == SDL_BUTTON_LEFT)
+		if (!mouseClicked)
 		{
-			for (int rectI = 0; rectI < puzzlePiecesTotal; rectI++)
+			mouseClicked = true;
+			if (sdlEvent.button.button == SDL_BUTTON_LEFT)
 			{
-				if (mouseWithinRectBound(sdlEvent.button, dstImgCoords[rectI]))
+				for (int rectI = 0; rectI < puzzlePiecesTotal; rectI++)
 				{
-					switch (moveState)
+					if (mouseWithinRectBound(sdlEvent.button, dstImgCoords[rectI]))
 					{
-					case (MoveState::NONE):
-						selectedI = rectI;
-						moveState = MoveState::SELECTED;
-						break;
-					case (MoveState::SELECTED):
-						if (rectI != selectedI)
+						switch (moveState)
 						{
-							std::swap(dstImgCoords[rectI], dstImgCoords[selectedI]);
-							selectedI = -1;
-							moveState = MoveState::NONE;
-
-							if (puzzleSolved())
+						case (MoveState::NONE):
+							selectedI = rectI;
+							moveState = MoveState::SELECTED;
+							break;
+						case (MoveState::SELECTED):
+							if (rectI != selectedI)
 							{
-								SDL_Log("Puzzle solved!");
-								programState = ProgramState::TRANSITION;
+								std::swap(dstImgCoords[rectI], dstImgCoords[selectedI]);
+								selectedI = -1;
+								moveState = MoveState::NONE;
+
+								if (puzzleSolved())
+								{
+									SDL_Log("Puzzle solved!");
+									// render puzzle solved text
+									mouseClicked = false;
+									programState = ProgramState::TRANSITION;
+								}
 							}
-						}
-						else
-						{
-							selectedI = -1;
-							moveState = MoveState::NONE;
+							else
+							{
+								selectedI = -1;
+								moveState = MoveState::NONE;
+							}
+							break;
 						}
 						break;
 					}
-					break;
+				}
+			}
+			else if (sdlEvent.button.button == SDL_BUTTON_RIGHT)
+			{
+				if (moveState == MoveState::SELECTED)
+				{
+					selectedI = -1;
+					moveState = MoveState::NONE;
+				}
+			}
+			else if (sdlEvent.button.button == SDL_BUTTON_MIDDLE)
+			{
+				if (miniRefImg == MiniRefImg::DISPLAY)
+				{
+					miniRefImg = MiniRefImg::HIDE;
+				}
+				else if (miniRefImg == MiniRefImg::HIDE)
+				{
+					miniRefImg = MiniRefImg::DISPLAY;
 				}
 			}
 		}
-		else if (sdlEvent.button.button == SDL_BUTTON_RIGHT)
+		break;
+	case SDL_MOUSEBUTTONUP:
+		mouseClicked = false;
+		break;
+	case SDL_KEYUP:
+		SDL_Keycode keyReleased = sdlEvent.key.keysym.sym;
+		switch (keyReleased)
 		{
-			if (moveState == MoveState::SELECTED)
+		case SDLK_s:
+			// Skip the current puzzle
+			if (puzzleCurrent + 1 == puzzleTextures.size())
 			{
-				selectedI = -1;
-				moveState = MoveState::NONE;
+				shufflePuzzles();
+				puzzleCurrent = 0;
 			}
-		}
-		else if (sdlEvent.button.button == SDL_BUTTON_MIDDLE)
-		{
-			if (miniRefImg == MiniRefImg::DISPLAY)
+			else
 			{
-				miniRefImg = MiniRefImg::HIDE;
+				puzzleCurrent++;
 			}
-			else if (miniRefImg == MiniRefImg::HIDE)
-			{
-				miniRefImg = MiniRefImg::DISPLAY;
-			}
+			shufflePuzzlePieces();
+			selectedI = -1;
+			moveState = MoveState::NONE;
+			break;
 		}
 		break;
 	}
@@ -343,6 +387,11 @@ void renderUpdate()
 	if (miniRefImg == MiniRefImg::DISPLAY)
 	{
 		SDL_RenderCopy(renderer.get(), puzzleTextures[puzzleCurrent].get(), NULL, &miniRefImgRect);
+	}
+
+	if (programState == ProgramState::TRANSITION)
+	{
+		SDL_RenderCopy(renderer.get(), puzzleCompleteTex.get(), NULL, &puzzleCompleteRect);
 	}
 	SDL_RenderPresent(renderer.get());
 }
